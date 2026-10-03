@@ -68,7 +68,8 @@ svg{display:block}
 .msg.open .acts{display:flex}
 .acts button,.edit-bar button{font-size:13px;padding:5px 11px;border-radius:999px;background:var(--paper);border:1px solid var(--line);color:var(--sub)}
 .acts button.warn{color:var(--danger)}
-.edit-bar{display:flex;gap:6px;margin-top:6px}
+.edit-bar{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.ed-hint{font-size:12px;color:var(--sub);margin:6px 4px 0}
 .edit-bar button.pri{background:var(--blue-d);color:#fff;border-color:transparent}
 .dots{display:inline-flex;gap:4px;padding:6px 2px}
 .dots i{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1.2s infinite}
@@ -233,12 +234,14 @@ const save=()=>{clearTimeout(saveT);saveT=setTimeout(()=>DB.set('state',S),250)}
 const saveNow=()=>{clearTimeout(saveT);return DB.set('state',S)};
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saveNow()});
 
-const newSession=(char)=>{const s={id:uid(),title:'',char:char?{...char}:{name:'',avatar:'',persona:'',greeting:''},note:'',msgs:[],created:Date.now(),updated:Date.now()};
+const newSession=(char,me)=>{const s={id:uid(),title:'',char:char?{...char}:{name:'',avatar:'',persona:'',greeting:''},me:me?{...me}:{on:false,name:'',avatar:'',persona:''},note:'',msgs:[],created:Date.now(),updated:Date.now()};
   if(s.char.greeting.trim())s.msgs.push({id:uid(),role:'assistant',swipes:[s.char.greeting],sel:0,t:Date.now(),greet:true});return s};
 const cs=()=>S.sessions.find(s=>s.id===S.current)||S.sessions[0];
 const cur=m=>m.swipes[m.sel]??'';
 const cname=s=>s.char.name||'未命名角色';
-const fill=(t,s)=>(t||'').replaceAll('{{char}}',cname(s)).replaceAll('{{user}}',S.settings.userName||'我');
+// 本窗口用独立身份时取窗口自己的，否则取默认身份
+const U=s=>{const st=S.settings;return s?.me?.on?{name:s.me.name||'我',avatar:s.me.avatar,persona:s.me.persona}:{name:st.userName||'我',avatar:st.userAvatar,persona:st.userPersona}};
+const fill=(t,s)=>(t||'').replaceAll('{{char}}',cname(s)).replaceAll('{{user}}',U(s).name);
 
 /* ---------- 文本渲染 ---------- */
 function fmt(t){
@@ -282,7 +285,7 @@ function render(keepScroll){
 }
 function msgHTML(m,i,s){
   const ai=m.role==='assistant',last=i===s.msgs.length-1,txt=cur(m);
-  const name=ai?cname(s):(S.settings.userName||'我'),av=ai?s.char.avatar:S.settings.userAvatar;
+  const u=U(s),name=ai?cname(s):u.name,av=ai?s.char.avatar:u.avatar;
   let body;
   if(editing===m.id)body=`<textarea id="edTa">${esc(txt)}</textarea>`;
   else body=(genId===m.id&&!txt)?'<span class="dots"><i></i><i></i><i></i></span>':fmt(txt);
@@ -292,8 +295,8 @@ function msgHTML(m,i,s){
       <button data-a="next" title="换一个回答">${m.swipes.length>1&&m.sel<m.swipes.length-1?IC.r:IC.re}</button></span>`;
   }
   const acts=editing===m.id
-    ?`<div class="edit-bar"><button class="pri" data-a="edSave">保存</button><button data-a="edCancel">取消</button></div>`
-    :`<div class="acts"><button data-a="copy">复制</button><button data-a="edit">编辑</button><button data-a="branch">从这里分支</button>${last&&!ai?'<button data-a="reply">让ta回复</button>':''}<button class="warn" data-a="del">删除</button></div>`;
+    ?`<div class="edit-bar"><button class="pri" data-a="edSave">保存</button>${ai?'<button data-a="edCont">保存并接着写</button>':'<button data-a="edRe">保存并重新回复</button>'}<button data-a="edCancel">取消</button></div><div class="ed-hint">${last?'保存后，ta 会以改过的版本为准继续演':'「保存」只改这一条；另外两个按钮会收起之后的对话（可撤销），剧情从这里重新走'}</div>`
+    :`<div class="acts"><button data-a="copy">复制</button><button data-a="edit">编辑</button><button data-a="branch">从这里分支</button>${last?'':'<button data-a="rewind">回溯到这里</button>'}${last&&!ai?'<button data-a="reply">让ta回复</button>':''}<button class="warn" data-a="del">删除</button></div>`;
   return `<div class="msg ${ai?'ai':'user'}" data-id="${m.id}">${avHTML(av,name)}<div class="col"><div class="bub">${body}</div>${editing===m.id?'':`<div class="meta">${meta}</div>`}${acts}</div></div>`;
 }
 function paint(m){
@@ -303,6 +306,11 @@ function paint(m){
 function setBusy(b){$('#bSend').innerHTML=b?IC.stop:IC.send;header()}
 
 /* ---------- 消息交互 ---------- */
+// 收起某条之后的全部消息，给一次撤销机会
+function cutAfter(s,idx){
+  const gone=s.msgs.splice(idx+1);s.updated=Date.now();save();if(!gone.length)return;
+  toast(`已收起之后的 ${gone.length} 条`,0,'撤销',()=>{if(busy)busy.abort();setTimeout(()=>{s.msgs.splice(idx+1,s.msgs.length,...gone);save();render(true)},50)});
+}
 $('#chat').addEventListener('click',e=>{
   const msgEl=e.target.closest('.msg');if(!msgEl)return;
   const s=cs(),idx=s.msgs.findIndex(m=>m.id===msgEl.dataset.id),m=s.msgs[idx];
@@ -320,10 +328,12 @@ $('#chat').addEventListener('click',e=>{
   else if(a==='edit'){editing=m.id;render(true);const t=$('#edTa');t.focus();t.style.height=t.scrollHeight+'px'}
   else if(a==='edSave'){m.swipes[m.sel]=$('#edTa').value;editing=null;s.updated=Date.now();save();render(true)}
   else if(a==='edCancel'){editing=null;render(true)}
+  else if(a==='edCont'||a==='edRe'){m.swipes[m.sel]=$('#edTa').value;editing=null;cutAfter(s,idx);generate(a==='edCont'?'cont':'new')}
+  else if(a==='rewind'){cutAfter(s,idx);render(true)}
   else if(a==='del'){const [gone]=s.msgs.splice(idx,1);save();render(true);
     toast('已删除',0,'撤销',()=>{s.msgs.splice(idx,0,gone);save();render(true)})}
   else if(a==='branch'){
-    const n=newSession(s.char);n.note=s.note;n.title=(s.title||cname(s))+' · 分支';
+    const n=newSession(s.char,s.me);n.note=s.note;n.title=(s.title||cname(s))+' · 分支';
     n.msgs=s.msgs.slice(0,idx+1).map(x=>({...x,id:uid(),swipes:[cur(x)],sel:0}));
     S.sessions.unshift(n);S.current=n.id;save();render();toast('已开出新的分支窗口')}
   else if(a==='reply'){generate('new')}
@@ -394,7 +404,7 @@ async function callAPI({system,msgs},{onDelta,signal,maxTokens,stream}){
 function payload(s,{upto,extra}={}){
   const st=S.settings,sys=[fill(st.globalPrompt,s)];
   if(s.char.persona)sys.push(`【${cname(s)} 的设定】\n${fill(s.char.persona,s)}`);
-  if(st.userPersona)sys.push(`【${st.userName||'我'} 的设定】\n${fill(st.userPersona,s)}`);
+  const u=U(s);if(u.persona)sys.push(`【${u.name} 的设定】\n${fill(u.persona,s)}`);
   if(s.note)sys.push(`【当前场景 / 备忘】\n${fill(s.note,s)}`);
   if(extra)sys.push(fill(extra,s));
   const list=upto==null?s.msgs:s.msgs.slice(0,upto);
@@ -443,7 +453,7 @@ async function impersonate(){
   const s=cs();if(busy)return;if(!S.settings.model)return openSettings('api');
   const ctl=new AbortController();busy=ctl;setBusy(true);
   const p=payload(s,{extra:'【代写】这一次请暂时换成{{user}}的视角：以{{user}}的身份写出{{user}}接下来的一句回应（动作用*星号*包裹），只写{{user}}的部分，简短自然，不要写{{char}}的任何反应，不要加任何说明。'});
-  needUser(p,'（请代写{{user}}的下一句）'.replaceAll('{{user}}',S.settings.userName||'我'));
+  needUser(p,fill('（请代写{{user}}的下一句）',s));
   const inp=$('#inp');inp.value='';
   try{await callAPI(p,{signal:ctl.signal,maxTokens:400,onDelta:(d,full)=>{inp.value=full;grow()}})}
   catch(e){if(e.name!=='AbortError')toast(errText(e),1)}
@@ -508,6 +518,11 @@ function openChar(){
   <div class="grp"><div class="f"><textarea class="tall" data-c="persona" placeholder="性格、外貌、说话方式、背景、和你的关系……写得越具体，ta越像ta。">${esc(s.char.persona)}</textarea></div></div>
   <div class="sec-t">开场白</div>
   <div class="grp"><div class="f"><textarea data-c="greeting" placeholder="故事的第一句，由ta说出口。&#10;*雨还在下，他推开门……*">${esc(s.char.greeting)}</textarea><div class="hint">只在窗口为空时作为ta的第一条消息出现。</div></div></div>
+  <div class="sec-t">我在这场戏里</div>
+  <div class="grp"><div class="f tg"><span>用独立身份<small style="display:block;font-size:12px;color:var(--sub)">${s.me.on?'这个窗口里的你，和别的窗口无关':'关闭时用「设置 · 默认身份」'}</small></span><label class="sw-t"><input type="checkbox" id="meOn" ${s.me.on?'checked':''}><i></i></label></div>
+    ${s.me.on?`<div class="avpick">${avHTML(s.me.avatar,s.me.name||'我','lg')}<div class="ops"><button class="btn sm" id="meAv">换头像</button>${s.me.avatar?'<button class="btn sm" id="meAvX">移除</button>':''}</div></div>
+    <div class="f"><label>这场戏里我叫（{{user}}）</label><input type="text" data-u="name" value="${esc(s.me.name)}" placeholder="比如：林小满"></div>
+    <div class="f"><label>这场戏里我是谁</label><textarea data-u="persona" placeholder="身份、外貌、性格、和ta的关系……只在这个窗口生效。">${esc(s.me.persona)}</textarea></div>`:''}</div>
   <div class="sec-t">场景备忘</div>
   <div class="grp"><div class="f"><textarea data-c="note" placeholder="当前的时间地点、关系进展、需要ta一直记得的事……随剧情随时改。">${esc(s.note)}</textarea><div class="hint">每一轮都会递给ta，相当于剧本边上的批注。支持 {{char}} {{user}}。</div></div></div>
   <button class="btn" id="cDup">用这个角色开一个新窗口</button>
@@ -521,8 +536,12 @@ function openChar(){
   const B=$('#shB');
   B.querySelectorAll('[data-c]').forEach(el=>el.oninput=()=>{const k=el.dataset.c;if(k==='title')s.title=el.value;else if(k==='note')s.note=el.value;else s.char[k]=el.value;save();header()});
   $('#cAv').onclick=()=>pickImage(u=>{s.char.avatar=u;save();openCharKeep()});
+  $('#meOn').onchange=e=>{s.me.on=e.target.checked;save();openCharKeep()};
+  B.querySelectorAll('[data-u]').forEach(el=>el.oninput=()=>{s.me[el.dataset.u]=el.value;save()});
+  const ma=$('#meAv');if(ma)ma.onclick=()=>pickImage(u=>{s.me.avatar=u;save();openCharKeep()});
+  const mx=$('#meAvX');if(mx)mx.onclick=()=>{s.me.avatar='';save();openCharKeep()};
   const x=$('#cAvX');if(x)x.onclick=()=>{s.char.avatar='';save();openCharKeep()};
-  $('#cDup').onclick=()=>{const n=newSession(s.char);n.note=s.note;S.sessions.unshift(n);S.current=n.id;closeAll();toast('新窗口已开，记忆从零开始')};
+  $('#cDup').onclick=()=>{const n=newSession(s.char,s.me);n.note=s.note;S.sessions.unshift(n);S.current=n.id;closeAll();toast('新窗口已开，记忆从零开始')};
   $('#cClr').onclick=()=>{if(!confirm('清空这个窗口的全部对话？'))return;s.msgs=[];save();closeAll()};
   $('#cDel').onclick=()=>{if(!confirm(`删除「${s.title||cname(s)}」？无法恢复。`))return;
     S.sessions=S.sessions.filter(x=>x.id!==s.id);if(!S.sessions.length)S.sessions.push(newSession());S.current=S.sessions[0].id;onSheetClose=null;save();closeAll();render()};
@@ -532,7 +551,7 @@ function openCharKeep(){const y=$('#shB').scrollTop;onSheetClose=null;openChar()
 /* 设置 */
 let setTab='api';
 function openSettings(tab){if(tab)setTab=tab;const st=S.settings;
-  const T={api:'连接',me:'我',prompt:'提示词',look:'外观',data:'数据'};
+  const T={api:'连接',me:'默认身份',prompt:'提示词',look:'外观',data:'数据'};
   let h=`<div class="tabs">${Object.entries(T).map(([k,v])=>`<button data-t="${k}" class="${k===setTab?'on':''}">${v}</button>`).join('')}</div>`;
   if(setTab==='api')h+=`
     <div class="grp"><div class="f"><label>接口格式</label><div class="seg"><button data-fmt="openai" class="${st.fmt==='openai'?'on':''}">OpenAI 兼容</button><button data-fmt="anthropic" class="${st.fmt==='anthropic'?'on':''}">Anthropic</button></div>
@@ -551,12 +570,12 @@ function openSettings(tab){if(tab)setTab=tab;const st=S.settings;
     </div>`;
   if(setTab==='me')h+=`
     <div class="grp"><div class="avpick">${avHTML(st.userAvatar,st.userName,'lg')}<div class="ops"><button class="btn sm" id="uAv">换头像</button>${st.userAvatar?'<button class="btn sm" id="uAvX">移除</button>':''}</div></div>
-    <div class="f"><label>我的名字（{{user}}）</label><input type="text" data-k="userName" value="${esc(st.userName)}"></div></div>
-    <div class="sec-t">我的设定（所有窗口通用）</div>
+    <div class="f"><label>默认名字（{{user}}）</label><input type="text" data-k="userName" value="${esc(st.userName)}"></div></div>
+    <div class="sec-t">默认设定 · 没开独立身份的窗口都用这个</div>
     <div class="grp"><div class="f"><textarea class="tall" data-k="userPersona" placeholder="你在故事里是谁：外貌、性格、身份……留空也可以。">${esc(st.userPersona)}</textarea></div></div>`;
   if(setTab==='prompt')h+=`
     <div class="grp"><div class="f"><label>全局提示词（所有窗口共用）</label><textarea class="tall" style="min-height:380px" data-k="globalPrompt">${esc(st.globalPrompt)}</textarea>
-    <div class="hint">{{char}} 会替换成当前角色名，{{user}} 替换成你的名字。<br>拼装顺序：全局提示词 → 角色设定 → 我的设定 → 场景备忘 → 导演指令。</div></div></div>
+    <div class="hint">{{char}} 会替换成当前角色名，{{user}} 替换成你的名字。<br>拼装顺序：全局提示词 → 角色设定 → 我的设定（窗口独立身份优先）→ 场景备忘 → 导演指令。</div></div></div>
     <button class="btn" id="pReset">恢复默认提示词</button>`;
   if(setTab==='look')h+=`
     <div class="grp"><div class="f"><label>字体大小 <span id="v_font">${st.font}px</span></label><input type="range" min="13" max="24" step="1" data-k="font" value="${st.font}">
@@ -638,7 +657,7 @@ $('#bWho').onclick=openChar;$('#bSet').onclick=()=>openSettings();
 /* ---------- 启动 ---------- */
 function fresh(){const n=newSession();return {settings:{...DEF},sessions:[n],current:n.id}}
 function normalize(d){d.settings={...DEF,...(d.settings||{})};if(!d.sessions?.length)d.sessions=[newSession()];
-  d.sessions.forEach(s=>{s.char={name:'',avatar:'',persona:'',greeting:'',...(s.char||{})};s.msgs=s.msgs||[];s.note=s.note||'';s.title=s.title||''});
+  d.sessions.forEach(s=>{s.char={name:'',avatar:'',persona:'',greeting:'',...(s.char||{})};s.me={on:false,name:'',avatar:'',persona:'',...(s.me||{})};s.msgs=s.msgs||[];s.note=s.note||'';s.title=s.title||''});
   if(!d.sessions.find(s=>s.id===d.current))d.current=d.sessions[0].id;return d}
 (async()=>{
   try{await DB.open();S=await DB.get('state')}catch(e){console.warn(e)}
