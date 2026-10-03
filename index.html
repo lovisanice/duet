@@ -58,6 +58,21 @@ svg{display:block}
 .bub em.act{font-style:normal;color:var(--act)}
 .bub .say{color:var(--say)}
 .bub strong{font-weight:650}
+.bub p{margin:0 0 .55em}.bub p:last-child{margin-bottom:0}
+.av.xs{width:22px;height:22px;font-size:11px}
+.nmtag{display:none}
+/* 小说排版 */
+[data-layout=novel] #chat{padding:24px 20px 10px}
+[data-layout=novel] .msg{flex-direction:column;gap:0;margin-bottom:28px}
+[data-layout=novel] .msg>.av{display:none}
+[data-layout=novel] .col{max-width:100%;width:100%;align-items:stretch!important}
+[data-layout=novel] .nmtag{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--sub);margin:0 0 8px;letter-spacing:.04em}
+[data-layout=novel] .bub{background:none;box-shadow:none;padding:0;border-radius:0;line-height:1.95;font-family:"Songti SC","Noto Serif SC","Source Han Serif SC",STSong,serif;text-align:justify}
+[data-layout=novel] .bub p{text-indent:2em;margin:0 0 .8em}
+[data-layout=novel] .bub p:last-child{margin-bottom:0}
+[data-layout=novel] .msg.user .bub{background:var(--blue-l);padding:12px 16px;border-radius:14px}
+[data-layout=novel] .bub textarea{width:100%}
+[data-layout=novel] .msg.user .meta,[data-layout=novel] .msg.user .acts{justify-content:flex-start}
 .bub textarea{width:min(70vw,560px);min-height:140px;border:0;background:transparent;outline:none;resize:vertical;line-height:1.7;font-size:max(16px,var(--fs))}
 .meta{font-size:12px;color:var(--sub);margin:5px 6px 0;display:flex;gap:4px;align-items:center;line-height:1}
 .sw{display:flex;align-items:center;gap:2px}
@@ -151,7 +166,8 @@ input[type=range]{width:100%;accent-color:var(--blue-d)}
 .res{font-size:13px;line-height:1.6;padding:10px 12px;border-radius:12px;background:var(--blue-l);margin:0 0 12px;white-space:pre-wrap;word-break:break-all;display:none}
 .res.show{display:block}
 .res.bad{background:color-mix(in srgb,var(--danger) 18%,var(--bg))}
-.preview{font-size:var(--fs);line-height:1.8;padding:12px 14px;border-radius:14px;background:var(--blue-l);margin:4px 0 6px}
+.preview{font-size:var(--fs);line-height:1.8;padding:12px 14px;border-radius:14px;background:var(--bg);margin:8px 0 6px}
+.preview .bub{background:none;box-shadow:none;padding:0}
 .preview em{font-style:normal;color:var(--act)}
 .seg{display:flex;gap:6px}
 .seg button{flex:1;padding:9px;border-radius:12px;border:1px solid var(--line);font-size:14px}
@@ -184,7 +200,7 @@ input[type=range]{width:100%;accent-color:var(--blue-d)}
   <div class="dir-tag">❖ 导演模式 · 这句话不会出现在对话里</div>
   <div class="comp-row">
     <button class="ib" id="bPlus" aria-label="更多"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
-    <textarea id="inp" rows="1" placeholder="说点什么… *动作用星号*"></textarea>
+    <textarea id="inp" rows="1" placeholder="写下你的这一段…"></textarea>
     <button class="send" id="bSend" aria-label="发送"></button>
   </div>
 </footer>
@@ -216,12 +232,12 @@ const DEFAULT_PROMPT=`你正在和{{user}}进行一场沉浸式的文字角色�
 
 · 你只扮演{{char}}，始终以{{char}}的身份、口吻和视角回应，不跳出角色，不解释自己是AI。
 · 绝不替{{user}}说话、行动或决定{{user}}的感受，把选择权留给{{user}}。
-· 用 *星号* 包裹动作、神态、环境与心理描写，对白自然鲜活，符合{{char}}的性格。
+· 以小说的笔法书写：叙述、动作、神态、环境与心理自然交织成段落，对白用“”引号，鲜活且符合{{char}}的性格。
 · 主动推动情节，给出具体的细节与五感，让场景有温度、有呼吸。
 · 回复长短随场景张弛，日常时轻快，关键时刻细腻；避免重复前文的句式和意象。`;
 
 const DEF={fmt:'openai',base:'https://api.openai.com/v1',key:'',model:'',temp:0.9,maxTokens:1200,ctx:40,stream:true,
-  font:16,theme:'day',enterSend:false,globalPrompt:DEFAULT_PROMPT,userName:'我',userAvatar:'',userPersona:''};
+  font:16,theme:'day',layout:'novel',enterSend:false,globalPrompt:DEFAULT_PROMPT,userName:'我',userAvatar:'',userPersona:''};
 
 /* ---------- 存储（IndexedDB） ---------- */
 const DB={db:null,
@@ -247,9 +263,9 @@ const fill=(t,s)=>(t||'').replaceAll('{{char}}',cname(s)).replaceAll('{{user}}',
 function fmt(t){
   let h=esc(t);
   h=h.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
-  h=h.replace(/\*([^*]+?)\*/g,'<em class="act">$1</em>');
-  h=h.replace(/(“[^”<]*”|「[^」<]*」|『[^』<]*』|&quot;[^&<]*?&quot;)/g,'<span class="say">$1</span>');
-  return h.replace(/\n/g,'<br>');
+  h=h.replace(/\*([^*\n]+?)\*/g,'<em class="act">$1</em>');
+  h=h.replace(/(“[^”<\n]*”|「[^」<\n]*」|『[^』<\n]*』|&quot;[^&<\n]*?&quot;)/g,'<span class="say">$1</span>');
+  return h.split(/\n+/).filter(x=>x.trim()).map(x=>`<p>${x}</p>`).join('');
 }
 const avHTML=(url,name,cls='')=>url?`<div class="av ${cls}" style="background-image:url('${url}')"></div>`:`<div class="av ${cls}">${esc((name||'?').trim().slice(0,1))}</div>`;
 function when(t){const d=new Date(t),n=new Date();const hm=d.toTimeString().slice(0,5);
@@ -260,6 +276,7 @@ let busy=null,genId=null,editing=null;
 function applyLook(){
   document.documentElement.style.setProperty('--fs',S.settings.font+'px');
   document.documentElement.dataset.theme=S.settings.theme;
+  document.documentElement.dataset.layout=S.settings.layout;
   document.querySelector('meta[name=theme-color]').content=S.settings.theme==='night'?'#1A2130':'#F7F3EA';
 }
 function header(){
@@ -297,7 +314,7 @@ function msgHTML(m,i,s){
   const acts=editing===m.id
     ?`<div class="edit-bar"><button class="pri" data-a="edSave">保存</button>${ai?'<button data-a="edCont">保存并接着写</button>':'<button data-a="edRe">保存并重新回复</button>'}<button data-a="edCancel">取消</button></div><div class="ed-hint">${last?'保存后，ta 会以改过的版本为准继续演':'「保存」只改这一条；另外两个按钮会收起之后的对话（可撤销），剧情从这里重新走'}</div>`
     :`<div class="acts"><button data-a="copy">复制</button><button data-a="edit">编辑</button><button data-a="branch">从这里分支</button>${last?'':'<button data-a="rewind">回溯到这里</button>'}${last&&!ai?'<button data-a="reply">让ta回复</button>':''}<button class="warn" data-a="del">删除</button></div>`;
-  return `<div class="msg ${ai?'ai':'user'}" data-id="${m.id}">${avHTML(av,name)}<div class="col"><div class="bub">${body}</div>${editing===m.id?'':`<div class="meta">${meta}</div>`}${acts}</div></div>`;
+  return `<div class="msg ${ai?'ai':'user'}" data-id="${m.id}">${avHTML(av,name)}<div class="col"><div class="nmtag">${avHTML(av,name,'xs')}<span>${esc(name)}</span></div><div class="bub">${body}</div>${editing===m.id?'':`<div class="meta">${meta}</div>`}${acts}</div></div>`;
 }
 function paint(m){
   const el=document.querySelector(`.msg[data-id="${m.id}"] .bub`);if(!el)return;
@@ -452,7 +469,7 @@ function errText(e){
 async function impersonate(){
   const s=cs();if(busy)return;if(!S.settings.model)return openSettings('api');
   const ctl=new AbortController();busy=ctl;setBusy(true);
-  const p=payload(s,{extra:'【代写】这一次请暂时换成{{user}}的视角：以{{user}}的身份写出{{user}}接下来的一句回应（动作用*星号*包裹），只写{{user}}的部分，简短自然，不要写{{char}}的任何反应，不要加任何说明。'});
+  const p=payload(s,{extra:'【代写】这一次请暂时换成{{user}}的视角：以{{user}}的身份写出{{user}}接下来的一句回应（沿用前文的小说笔法），只写{{user}}的部分，简短自然，不要写{{char}}的任何反应，不要加任何说明。'});
   needUser(p,fill('（请代写{{user}}的下一句）',s));
   const inp=$('#inp');inp.value='';
   try{await callAPI(p,{signal:ctl.signal,maxTokens:400,onDelta:(d,full)=>{inp.value=full;grow()}})}
@@ -466,7 +483,7 @@ function grow(){inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeig
 inp.addEventListener('input',grow);
 inp.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&S.settings.enterSend){e.preventDefault();send()}});
 $('#bSend').onclick=send;
-function setDirector(on){director=on;$('#comp').classList.toggle('director',on);inp.placeholder=on?'告诉ta接下来剧情该怎么走…':'说点什么… *动作用星号*';if(on)inp.focus()}
+function setDirector(on){director=on;$('#comp').classList.toggle('director',on);inp.placeholder=on?'告诉ta接下来剧情该怎么走…':'写下你的这一段…';if(on)inp.focus()}
 function send(){
   if(busy){busy.abort();return}
   const t=inp.value.trim(),s=cs();
@@ -579,7 +596,8 @@ function openSettings(tab){if(tab)setTab=tab;const st=S.settings;
     <button class="btn" id="pReset">恢复默认提示词</button>`;
   if(setTab==='look')h+=`
     <div class="grp"><div class="f"><label>字体大小 <span id="v_font">${st.font}px</span></label><input type="range" min="13" max="24" step="1" data-k="font" value="${st.font}">
-      <div class="preview"><em>*他低头看你，眼里有光*</em> “今天也辛苦了。”</div></div>
+      <div class="preview"><div class="bub">${fmt('雨还没停。他把伞往你那边偏了偏，自己半边肩膀湿透了也没察觉。\n“今天也辛苦了。”')}</div></div></div>
+    <div class="f"><label>排版</label><div class="seg"><button data-ly="novel" class="${st.layout==='novel'?'on':''}">小说</button><button data-ly="bubble" class="${st.layout==='bubble'?'on':''}">聊天气泡</button></div></div>
     <div class="f"><label>主题</label><div class="seg"><button data-th="day" class="${st.theme==='day'?'on':''}">米白 · 昼</button><button data-th="night" class="${st.theme==='night'?'on':''}">深蓝 · 夜</button></div></div>
     <div class="f tg"><span>回车直接发送<small style="display:block;font-size:12px;color:var(--sub)">电脑键盘推荐开，手机推荐关</small></span><label class="sw-t"><input type="checkbox" data-k="enterSend" ${st.enterSend?'checked':''}><i></i></label></div></div>
     <div class="hint" style="font-size:12.5px;color:var(--sub);line-height:1.7;padding:0 4px">小提示：左滑ta的最后一条回复 = 换一个回答；右滑 = 翻回上一个。点任意气泡可以编辑、复制、删除、分支。<br>添加到主屏幕：iPhone 用 Safari 分享 → 添加到主屏幕；安卓用浏览器菜单 → 安装应用。</div>`;
@@ -610,6 +628,7 @@ function bindSettings(){
     if(was!==st.fmt){if(st.fmt==='anthropic'&&/openai\.com/.test(st.base))st.base='https://api.anthropic.com';
       if(st.fmt==='openai'&&/anthropic\.com/.test(st.base))st.base='https://api.openai.com/v1'}
     save();openSettings()});
+  B.querySelectorAll('[data-ly]').forEach(b=>b.onclick=()=>{st.layout=b.dataset.ly;applyLook();save();openSettings()});
   B.querySelectorAll('[data-th]').forEach(b=>b.onclick=()=>{st.theme=b.dataset.th;applyLook();save();openSettings()});
   const on=(id,fn)=>{const e=$('#'+id);if(e)e.onclick=fn};
   on('kEye',()=>{const i=$('#keyIn');const show=i.type==='password';i.type=show?'text':'password';$('#kEye').textContent=show?'隐藏':'显示'});
