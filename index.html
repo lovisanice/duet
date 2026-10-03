@@ -373,6 +373,7 @@ function endpoint(kind){
     return b+(kind==='models'?'/models':'/messages');
   }
   b=b.replace(/\/chat\/completions$/,'').replace(/\/models$/,'');
+  if(/^https?:\/\/[^/]+$/i.test(b))b+='/v1'; // 只填了域名就补 /v1，带路径的原样保留
   return b+(kind==='models'?'/models':'/chat/completions');
 }
 function headers(){
